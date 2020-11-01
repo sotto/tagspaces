@@ -35,7 +35,7 @@ import DefaultPerspectiveIcon from '@material-ui/icons/GridOn';
 import GalleryPerspectiveIcon from '@material-ui/icons/Camera';
 import MapiquePerspectiveIcon from '@material-ui/icons/Map';
 // import TreeVizPerspectiveIcon from '@material-ui/icons/AccountTree';
-import KanBanPerspectiveIcon from '@material-ui/icons/Dashboard';
+// import KanBanPerspectiveIcon from '@material-ui/icons/Dashboard';
 import NewFileIcon from '@material-ui/icons/InsertDriveFile';
 import NewFolderIcon from '@material-ui/icons/CreateNewFolder';
 import RenameFolderIcon from '@material-ui/icons/FormatTextdirectionLToR';
@@ -59,6 +59,7 @@ import { actions as AppActions, perspectives } from '-/reducers/app';
 import IOActions from '-/reducers/io-actions';
 import { Tag } from '-/reducers/taglibrary';
 import TaggingActions from '-/reducers/tagging-actions';
+import { FileSystemEntry, getAllPropertiesPromise } from '-/services/utils-io';
 
 interface Props {
   open: boolean;
@@ -68,7 +69,7 @@ interface Props {
   directoryPath: string;
   loadDirectoryContent: (path: string) => void;
   openDirectory: (path: string) => void;
-  openFile: (path: string, isFile: boolean) => void;
+  openFsEntry: (fsEntry: FileSystemEntry) => void;
   deleteDirectory: (path: string) => void;
   reflectCreateEntry?: (path: string, isFile: boolean) => void;
   toggleCreateFileDialog?: () => void;
@@ -77,7 +78,8 @@ interface Props {
     files: Array<File>,
     destination: string,
     onUploadProgress?: (progress: Progress, response: any) => void
-  ) => void;
+  ) => any;
+  reflectCreateEntries: (fsEntries: Array<FileSystemEntry>) => void;
   onUploadProgress: (progress: Progress, response: any) => void;
   switchPerspective?: (perspectiveId: string) => void;
   perspectiveMode?: boolean;
@@ -125,7 +127,19 @@ const DirectoryMenu = (props: Props) => {
 
   function showProperties() {
     props.onClose();
-    props.openFile(props.directoryPath, false);
+    getAllPropertiesPromise(props.directoryPath)
+      .then((fsEntry: FileSystemEntry) => {
+        props.openFsEntry(fsEntry);
+        return true;
+      })
+      .catch(error =>
+        console.warn(
+          'Error getting properties for entry: ' +
+            props.directoryPath +
+            ' - ' +
+            error
+        )
+      );
   }
 
   // function initContentExtraction() {
@@ -296,11 +310,20 @@ const DirectoryMenu = (props: Props) => {
     // console.log("Selected File: "+JSON.stringify(selection.currentTarget.files[0]));
     // const file = selection.currentTarget.files[0];
     props.resetProgress();
-    props.uploadFilesAPI(
-      Array.from(selection.currentTarget.files),
-      props.directoryPath,
-      props.onUploadProgress
-    );
+
+    props
+      .uploadFilesAPI(
+        Array.from(selection.currentTarget.files),
+        props.directoryPath,
+        props.onUploadProgress
+      )
+      .then(fsEntries => {
+        props.reflectCreateEntries(fsEntries);
+        return true;
+      })
+      .catch(error => {
+        console.log('uploadFiles', error);
+      });
     props.toggleUploadDialog();
     /*
     const filePath =
@@ -590,6 +613,7 @@ function mapDispatchToProps(dispatch) {
       toggleUploadDialog: AppActions.toggleUploadDialog,
       toggleProgressDialog: AppActions.toggleProgressDialog,
       resetProgress: AppActions.resetProgress,
+      reflectCreateEntries: AppActions.reflectCreateEntries,
       extractContent: IOActions.extractContent,
       uploadFilesAPI: IOActions.uploadFilesAPI,
       addTags: TaggingActions.addTags

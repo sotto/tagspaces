@@ -24,14 +24,15 @@ import MoreVertIcon from '@material-ui/icons/MoreVert';
 import PlaceIcon from '@material-ui/icons/Place';
 import DateIcon from '@material-ui/icons/DateRange';
 import RemoveTagIcon from '@material-ui/icons/Close';
-import { TagGroup, Tag, getAllTags } from '../reducers/taglibrary';
-import { getTagColor, getTagTextColor } from '../reducers/settings';
-import { isPlusCode } from '../utils/misc';
-import { isDateTimeTag } from '../utils/dates';
+import { getAllTags, Tag, TagGroup } from '-/reducers/taglibrary';
+import { getTagColor, getTagTextColor } from '-/reducers/settings';
+import { isPlusCode } from '-/utils/misc';
+import { isDateTimeTag } from '-/utils/dates';
 import { FileSystemEntry } from '-/services/utils-io';
 
 interface Props {
   tag: Tag;
+  isReadOnlyMode?: boolean;
   allTags?: Array<Tag>;
   key?: string;
   defaultTextColor?: string;
@@ -42,7 +43,7 @@ interface Props {
     tag: Tag,
     tagGroup: TagGroup | string
   ) => void; // TODO refactor
-  handleRemoveTag?: (event: Object, tag: Tag) => void;
+  handleRemoveTag?: (event: Object, tags: Array<Tag>) => void;
   isDragging?: boolean;
   tagMode?: 'default' | 'display' | 'remove';
   entryPath?: string;
@@ -69,15 +70,15 @@ const TagContainer = React.memo((props: Props) => {
     addTags,
     tagMode
   } = props;
-
   let textColor = tag.textcolor || defaultTextColor;
   let backgroundColor = tag.color || defaultBackgroundColor;
-  const titleOrig = tag.title;
-  let title = titleOrig;
+  let { title } = tag;
 
   // Check if tag is plus code
   let isGeoTag = false;
   let isTagDate = false;
+  let isDateSmartTag = false;
+  let isGeoSmartTag = false;
   if (!tagGroup) {
     isGeoTag = isPlusCode(title); // || isLatLong
     isTagDate = !isGeoTag && isDateTimeTag(title);
@@ -104,6 +105,55 @@ const TagContainer = React.memo((props: Props) => {
   if (title && title.length > 0) {
     tid += title.replace(/ /g, '_');
   }
+
+  function getActionMenu() {
+    if (
+      props.isReadOnlyMode ||
+      (tag.functionality && tag.functionality.length > 0)
+    ) {
+      return <div style={{ width: 10 }} />;
+    }
+    return tagMode === 'remove' ? (
+      deleteIcon || (
+        <RemoveTagIcon
+          data-tid={'tagRemoveButton_' + title.replace(/ /g, '_')}
+          style={{
+            color: tag.textcolor,
+            fontSize: 20
+          }}
+          onClick={event => handleRemoveTag(event, [tag])}
+        />
+      )
+    ) : (
+      <MoreVertIcon
+        data-tid={'tagMoreButton_' + title.replace(/ /g, '_')}
+        style={{
+          color: tag.textcolor,
+          marginLeft: -5,
+          marginRight: -5,
+          top: 0
+        }}
+      />
+    );
+  }
+
+  if (tag.functionality && tag.functionality.length > 0) {
+    const tagFunc = tag.functionality;
+    if (
+      tagFunc === 'now' ||
+      tagFunc === 'today' ||
+      tagFunc === 'tomorrow' ||
+      tagFunc === 'yesterday' ||
+      tagFunc === 'currentMonth' ||
+      tagFunc === 'currentYear' ||
+      tagFunc === 'dateTagging'
+    ) {
+      isDateSmartTag = true;
+    } else if (tagFunc === 'geoTagging') {
+      isGeoSmartTag = true;
+    }
+  }
+
   return (
     <div
       role="presentation"
@@ -159,7 +209,7 @@ const TagContainer = React.memo((props: Props) => {
         }}
       >
         <span style={{ flexGrow: 1 }}>
-          {isGeoTag && (
+          {(isGeoTag || isGeoSmartTag) && (
             <PlaceIcon
               style={{
                 color: tag.textcolor,
@@ -168,7 +218,7 @@ const TagContainer = React.memo((props: Props) => {
               }}
             />
           )}
-          {isTagDate && (
+          {(isTagDate || isDateSmartTag) && (
             <DateIcon
               style={{
                 color: tag.textcolor,
@@ -180,28 +230,7 @@ const TagContainer = React.memo((props: Props) => {
           )}
           {!isGeoTag && title}
         </span>
-        {tagMode === 'remove' ? (
-          deleteIcon || (
-            <RemoveTagIcon
-              data-tid={'tagRemoveButton_' + title.replace(/ /g, '_')}
-              style={{
-                color: tag.textcolor,
-                fontSize: 20
-              }}
-              onClick={event => handleRemoveTag(event, tag)}
-            />
-          )
-        ) : (
-          <MoreVertIcon
-            data-tid={'tagMoreButton_' + title.replace(/ /g, '_')}
-            style={{
-              color: tag.textcolor,
-              marginLeft: -5,
-              marginRight: -5,
-              top: 0
-            }}
-          />
-        )}
+        {getActionMenu()}
       </Button>
     </div>
   );

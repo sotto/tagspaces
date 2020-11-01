@@ -25,8 +25,8 @@ import Typography from '@material-ui/core/Typography';
 import IconButton from '@material-ui/core/IconButton';
 import Paper from '@material-ui/core/Paper';
 import FolderIcon from '@material-ui/icons/FolderOpen';
-import SelectedIcon from '@material-ui/icons/CheckCircle';
-import UnSelectedIcon from '@material-ui/icons/RadioButtonUnchecked';
+// import SelectedIcon from '@material-ui/icons/CheckCircle';
+// import UnSelectedIcon from '@material-ui/icons/RadioButtonUnchecked';
 import TagIcon from '@material-ui/icons/LocalOfferOutlined';
 import { formatFileSize, formatDateTime } from '-/utils/misc';
 import { extractTitle } from '-/utils/paths';
@@ -49,7 +49,7 @@ interface Props {
   supportedFileTypes: Array<Object>;
   thumbnailMode: any;
   addTags: () => void;
-  openFile: (path: string, isFile: boolean) => void;
+  openFsEntry: (fsEntry: FileSystemEntry) => void;
   selectedEntries: Array<FileSystemEntry>;
   isReadOnlyMode: boolean;
   showTags: boolean;
@@ -78,7 +78,7 @@ const CellContent = (props: Props) => {
     handleGridCellDblClick,
     handleGridCellClick,
     showTags,
-    openFile
+    openFsEntry
   } = props;
   const fsEntryBackgroundColor = fsEntry.color ? fsEntry.color : 'transparent';
   const entryTitle = extractTitle(
@@ -99,17 +99,16 @@ const CellContent = (props: Props) => {
   );
 
   let tagTitles = '';
-  fsEntry.tags.map(tag => {
-    tagTitles += tag.title + ', ';
-    return true;
-  });
+  if (fsEntry.tags) {
+    fsEntry.tags.map(tag => {
+      tagTitles += tag.title + ', ';
+      return true;
+    });
+  }
   tagTitles = tagTitles.substring(0, tagTitles.length - 2);
   const tagPlaceholder =
     tagTitles.length > 0 ? (
-      <IconButton
-        title={tagTitles}
-        onClick={() => openFile(fsEntry.path, fsEntry.isFile)}
-      >
+      <IconButton title={tagTitles} onClick={() => openFsEntry(fsEntry)}>
         <TagIcon />
       </IconButton>
     ) : null;
@@ -147,7 +146,7 @@ const CellContent = (props: Props) => {
             />
           )}
           <div id="gridCellTags" className={classes.gridCellTags}>
-            {showTags
+            {showTags && fsEntry.tags
               ? fsEntry.tags.map(tag => renderTag(tag))
               : tagPlaceholder}
           </div>
@@ -164,7 +163,7 @@ const CellContent = (props: Props) => {
         </div>
         <Typography
           className={classes.gridCellTitle}
-          data-tid="fsEntryName"
+          data-tid={'fsEntryName_' + fsEntry.name}
           title={fsEntry.path}
           noWrap={true}
           variant="body1"
@@ -274,7 +273,7 @@ const CellContent = (props: Props) => {
             <Typography style={{ wordBreak: 'break-all', alignSelf: 'center' }}>
               {entryTitle}
               &nbsp;
-              {showTags
+              {showTags && fsEntry.tags
                 ? fsEntry.tags.map(tag => renderTag(tag))
                 : tagPlaceholder}
             </Typography>
@@ -284,7 +283,7 @@ const CellContent = (props: Props) => {
             <Typography style={{ wordBreak: 'break-all' }}>
               {entryTitle}
             </Typography>
-            {showTags
+            {showTags && fsEntry.tags
               ? fsEntry.tags.map(tag => renderTag(tag))
               : tagPlaceholder}
             <Typography

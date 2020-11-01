@@ -28,16 +28,18 @@ import {
   getMetaFileLocationForFile,
   getMetaFileLocationForDir,
   extractContainingDirectoryPath
-} from '../utils/paths';
+} from '-/utils/paths';
 // import { formatDateTime4Tag } from '../utils/misc';
 import versionMeta from '../version.json';
-import { Tag } from '../reducers/taglibrary';
+import { Tag } from '-/reducers/taglibrary';
 import { getThumbnailURLPromise } from '-/services/thumbsgenerator';
+import { OpenedEntry } from '-/reducers/app';
 
 export interface FileSystemEntry {
   uuid?: string;
   name: string;
   isFile: boolean;
+  isNewFile?: boolean;
   extension: string;
   thumbPath?: string;
   color?: string;
@@ -89,11 +91,6 @@ export function enhanceDirectoryContent(
 
     if (limit !== undefined && directoryContent.length >= limit) {
       return true;
-    }
-
-    if (isCloudLocation) {
-      // eslint-disable-next-line no-param-reassign
-      entry.url = PlatformIO.getURLforPath(entry.path);
     }
 
     const enhancedEntry = enhanceEntry(entry);
@@ -166,9 +163,6 @@ export function enhanceEntry(entry: any): FileSystemEntry {
   if (entry && entry.thumbPath) {
     enhancedEntry.thumbPath = entry.thumbPath;
   }
-  if (entry && entry.url) {
-    enhancedEntry.url = entry.url;
-  }
   if (entry && entry.textContent) {
     enhancedEntry.textContent = entry.textContent;
   }
@@ -180,6 +174,33 @@ export function enhanceEntry(entry: any): FileSystemEntry {
   }
   // console.log('Enhancing ' + entry.path); console.log(enhancedEntry);
   return enhancedEntry;
+}
+
+export function enhanceOpenedEntry(
+  entry: OpenedEntry,
+  tagDelimiter
+): OpenedEntry {
+  const fineNameTags = extractTagsAsObjects(
+    entry.path,
+    tagDelimiter,
+    PlatformIO.getDirSeparator()
+  );
+  if (fineNameTags.length > 0) {
+    if (entry.tags && entry.tags.length > 0) {
+      const uniqueTags = entry.tags.filter(
+        tag => fineNameTags.findIndex(obj => obj.title === tag.title) === -1
+      );
+      return {
+        ...entry,
+        tags: [...uniqueTags, ...fineNameTags]
+      };
+    }
+    return {
+      ...entry,
+      tags: fineNameTags
+    };
+  }
+  return entry;
 }
 
 export function createDirectoryIndex(
@@ -346,9 +367,9 @@ export async function getAllPropertiesPromise(
 }
 
 export async function loadJSONFile(filePath: string) {
-  let jsonObject;
-  let jsonContent = await PlatformIO.loadTextFilePromise(filePath);
-  const UTF8_BOM = '\ufeff';
+  const jsonContent = await PlatformIO.loadTextFilePromise(filePath);
+  return loadJSONString(jsonContent);
+  /* const UTF8_BOM = '\ufeff';
   if (jsonContent.indexOf(UTF8_BOM) === 0) {
     jsonContent = jsonContent.substring(1, jsonContent.length);
   }
@@ -356,6 +377,21 @@ export async function loadJSONFile(filePath: string) {
     jsonObject = JSON.parse(jsonContent);
   } catch (err) {
     console.warn('Error parsing meta json file for ' + filePath + ' - ' + err);
+  }
+  return jsonObject; */
+}
+
+export function loadJSONString(jsonContent: string) {
+  let jsonObject;
+  let json;
+  const UTF8_BOM = '\ufeff';
+  if (jsonContent.indexOf(UTF8_BOM) === 0) {
+    json = jsonContent.substring(1, jsonContent.length);
+  }
+  try {
+    jsonObject = JSON.parse(json);
+  } catch (err) {
+    console.error('Error parsing meta json file: ' + json, err);
   }
   return jsonObject;
 }
@@ -561,60 +597,67 @@ export async function saveMetaDataPromise(
   metaData: any
 ): Promise<any> {
   const entryProperties = await PlatformIO.getPropertiesPromise(path);
-  let metaFilePath;
-  let newFsEntryMeta;
+  if (entryProperties) {
+    let metaFilePath;
+    let newFsEntryMeta;
+    if (entryProperties.isFile) {
+      metaFilePath = getMetaFileLocationForFile(
+        path,
+        PlatformIO.getDirSeparator()
+      );
+      // check and create meta folder if not exist
+      await PlatformIO.createDirectoryPromise(
+        extractContainingDirectoryPath(
+          metaFilePath,
+          PlatformIO.getDirSeparator()
+        )
+      );
 
-  if (entryProperties.isFile) {
-    metaFilePath = getMetaFileLocationForFile(
-      path,
-      PlatformIO.getDirSeparator()
-    );
-    // check and create meta folder if not exist
-    await PlatformIO.createDirectoryPromise(
-      extractContainingDirectoryPath(metaFilePath, PlatformIO.getDirSeparator())
-    );
-
-    newFsEntryMeta = {
-      ...metaData,
-      appName: versionMeta.name,
-      appVersionUpdated: versionMeta.version,
-      lastUpdated: new Date().toJSON()
-    };
-  } else {
-    // check and create meta folder if not exist
-    // todo not need to check if folder exist first createDirectoryPromise() recursively will skip creation of existing folders https://nodejs.org/api/fs.html#fs_fs_mkdir_path_options_callback
-    const metaDirectoryPath = getMetaDirectoryPath(
-      path,
-      PlatformIO.getDirSeparator()
-    );
-    const metaDirectoryProperties = await PlatformIO.getPropertiesPromise(
-      metaDirectoryPath
-    );
-    if (!metaDirectoryProperties) {
-      await PlatformIO.createDirectoryPromise(metaDirectoryPath);
-    }
-
-    let dirId;
-    if (metaData && metaData.id && metaData.id.length > 1) {
-      dirId = metaData.id;
+      newFsEntryMeta = {
+        ...metaData,
+        appName: versionMeta.name,
+        appVersionUpdated: versionMeta.version,
+        lastUpdated: new Date().toJSON()
+      };
     } else {
-      dirId = uuidv1();
-    }
+      // check and create meta folder if not exist
+      // todo not need to check if folder exist first createDirectoryPromise() recursively will skip creation of existing folders https://nodejs.org/api/fs.html#fs_fs_mkdir_path_options_callback
+      const metaDirectoryPath = getMetaDirectoryPath(
+        path,
+        PlatformIO.getDirSeparator()
+      );
+      const metaDirectoryProperties = await PlatformIO.getPropertiesPromise(
+        metaDirectoryPath
+      );
+      if (!metaDirectoryProperties) {
+        await PlatformIO.createDirectoryPromise(metaDirectoryPath);
+      }
 
-    metaFilePath = getMetaFileLocationForDir(
-      path,
-      PlatformIO.getDirSeparator()
-    );
-    newFsEntryMeta = {
-      ...metaData,
-      id: dirId,
-      appName: versionMeta.name,
-      appVersionUpdated: versionMeta.version,
-      lastUpdated: new Date().toJSON()
-    };
+      let dirId;
+      if (metaData && metaData.id && metaData.id.length > 1) {
+        dirId = metaData.id;
+      } else {
+        dirId = uuidv1();
+      }
+
+      metaFilePath = getMetaFileLocationForDir(
+        path,
+        PlatformIO.getDirSeparator()
+      );
+      newFsEntryMeta = {
+        ...metaData,
+        id: dirId,
+        appName: versionMeta.name,
+        appVersionUpdated: versionMeta.version,
+        lastUpdated: new Date().toJSON()
+      };
+    }
+    const content = JSON.stringify(newFsEntryMeta);
+    return PlatformIO.saveTextFilePromise(metaFilePath, content, true);
   }
-  const content = JSON.stringify(newFsEntryMeta);
-  return PlatformIO.saveTextFilePromise(metaFilePath, content, true);
+  return new Promise((resolve, reject) =>
+    reject(new Error('file not found' + path))
+  );
 }
 
 export function findColorForFileEntry(

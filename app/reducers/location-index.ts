@@ -67,6 +67,7 @@ export default (state: any = initialState, action: any) => {
     case types.INDEX_DIRECTORY_CLEAR: {
       // GlobalSearch.index.length = 0;
       GlobalSearch.index.splice(0, GlobalSearch.index.length);
+      GlobalSearch.indexLoadedOn = undefined;
       return {
         ...state,
         isIndexing: false
@@ -91,6 +92,9 @@ export default (state: any = initialState, action: any) => {
       };
     }
     case types.REFLECT_DELETE_ENTRY: {
+      if (GlobalSearch.index.length < 1) {
+        return state;
+      }
       for (let i = 0; i < GlobalSearch.index.length; i += 1) {
         if (GlobalSearch.index[i].path === action.path) {
           GlobalSearch.index.splice(i, 1);
@@ -100,6 +104,9 @@ export default (state: any = initialState, action: any) => {
       return state;
     }
     case types.REFLECT_CREATE_ENTRY: {
+      if (GlobalSearch.index.length < 1) {
+        return state;
+      }
       let entryFound = false;
       for (let i = 0; i < GlobalSearch.index.length; i += 1) {
         if (GlobalSearch.index[i].path === action.path) {
@@ -113,6 +120,9 @@ export default (state: any = initialState, action: any) => {
       return state;
     }
     case types.REFLECT_RENAME_ENTRY: {
+      if (GlobalSearch.index.length < 1) {
+        return state;
+      }
       for (let i = 0; i < GlobalSearch.index.length; i += 1) {
         if (GlobalSearch.index[i].path === action.path) {
           GlobalSearch.index[i].path = action.newPath;
@@ -239,36 +249,36 @@ export const actions = {
         console.warn('Resolution is faled!', e);
       });
   },
-  loadDirectoryIndex: (
-    directoryPath: string,
-    isCurrentLocation: boolean = true
-  ) => (dispatch: (actions: Object) => void) => {
-    dispatch(actions.startDirectoryIndexing());
-    dispatch(
-      AppActions.showNotification(i18n.t('core:loadingIndex'), 'default', true)
-    );
-    if (Pro && Pro.Indexer.loadIndex) {
-      Pro.Indexer.loadIndex(directoryPath, PlatformIO.getDirSeparator())
-        .then(directoryIndex => {
-          if (isCurrentLocation) {
-            // Load index only if current location
-            GlobalSearch.index = directoryIndex;
-          }
-          dispatch(actions.indexDirectorySuccess());
-          return true;
-        })
-        .catch(err => {
-          dispatch(actions.indexDirectoryFailure(err));
-          dispatch(
-            AppActions.showNotification(
-              i18n.t('core:loadingIndexFailed'),
-              'warning',
-              true
-            )
-          );
-        });
-    }
-  },
+  // loadDirectoryIndex: (
+  //   directoryPath: string,
+  //   isCurrentLocation: boolean = true
+  // ) => (dispatch: (actions: Object) => void) => {
+  //   dispatch(actions.startDirectoryIndexing());
+  //   dispatch(
+  //     AppActions.showNotification(i18n.t('core:loadingIndex'), 'default', true)
+  //   );
+  //   if (Pro && Pro.Indexer.loadIndex) {
+  //     Pro.Indexer.loadIndex(directoryPath, PlatformIO.getDirSeparator())
+  //       .then(directoryIndex => {
+  //         if (isCurrentLocation) {
+  //           // Load index only if current location
+  //           GlobalSearch.index = directoryIndex;
+  //         }
+  //         dispatch(actions.indexDirectorySuccess());
+  //         return true;
+  //       })
+  //       .catch(err => {
+  //         dispatch(actions.indexDirectoryFailure(err));
+  //         dispatch(
+  //           AppActions.showNotification(
+  //             i18n.t('core:loadingIndexFailed'),
+  //             'warning',
+  //             true
+  //           )
+  //         );
+  //       });
+  //   }
+  // },
   clearDirectoryIndex: () => ({
     type: types.INDEX_DIRECTORY_CLEAR
   }),
@@ -292,33 +302,57 @@ export const actions = {
       );
       return;
     }
+    const isCloudLocation = currentLocation.type === locationType.TYPE_CLOUD;
     dispatch(
       AppActions.showNotification(i18n.t('core:searching'), 'default', false)
     );
     dispatch(actions.setSearchQuery(searchQuery));
-    let directoryIndex = GlobalSearch.index;
     setTimeout(async () => {
       // Workaround used to show the start search notification
-      if (searchQuery.forceIndexing) {
+      const currentTime = new Date().getTime();
+      const indexAge = GlobalSearch.indexLoadedOn
+        ? currentTime - GlobalSearch.indexLoadedOn
+        : 0;
+      if (
+        GlobalSearch.index.length < 1 ||
+        searchQuery.forceIndexing ||
+        indexAge > AppConfig.maxIndexAge
+      ) {
         const currentPath = currentLocation.paths[0];
         console.log('Start creating index for : ' + currentPath);
-        directoryIndex = await createDirectoryIndex(
-          currentPath,
-          currentLocation.fullTextIndex
-        );
-        if (Pro && Pro.Indexer && Pro.Indexer.persistIndex) {
-          Pro.Indexer.persistIndex(
+        if (currentLocation.persistIndex && Pro && Pro.Indexer.loadIndex) {
+          GlobalSearch.index = await Pro.Indexer.loadIndex(
             currentPath,
-            directoryIndex,
             PlatformIO.getDirSeparator()
           );
+        } else {
+          GlobalSearch.index = await createDirectoryIndex(
+            currentPath,
+            currentLocation.fullTextIndex
+          );
+          if (Pro && Pro.Indexer && Pro.Indexer.persistIndex) {
+            Pro.Indexer.persistIndex(
+              currentPath,
+              GlobalSearch.index,
+              PlatformIO.getDirSeparator()
+            );
+          }
+        }
+        if (GlobalSearch.index && GlobalSearch.index.length > 0) {
+          GlobalSearch.indexLoadedOn = new Date().getTime();
         }
       }
       Search.searchLocationIndex(GlobalSearch.index, searchQuery)
         .then(searchResults => {
-          if (currentLocation.type === locationType.TYPE_CLOUD) {
+          if (isCloudLocation) {
             searchResults.forEach((entry: FileSystemEntry) => {
-              entry.url = PlatformIO.getURLforPath(entry.path);
+              if (
+                entry.thumbPath &&
+                entry.thumbPath.length > 1 &&
+                !entry.thumbPath.startsWith('http')
+              ) {
+                entry.thumbPath = PlatformIO.getURLforPath(entry.thumbPath);
+              }
             });
           }
           dispatch(AppActions.setSearchResults(searchResults));
@@ -354,7 +388,7 @@ export const actions = {
 
     // Preparing for global search
     dispatch(AppActions.setSearchResults([]));
-    if (currentLocation.type === locationType.TYPE_CLOUD) {
+    if (currentLocation && currentLocation.type === locationType.TYPE_CLOUD) {
       PlatformIO.disableObjectStoreSupport();
     }
     window.walkCanceled = false;
@@ -418,6 +452,15 @@ export const actions = {
                     // Excluding s3 folders from global search
                     if (entry && entry.isFile) {
                       entry.url = PlatformIO.getURLforPath(entry.path);
+                      if (
+                        entry.thumbPath &&
+                        entry.thumbPath.length > 1 &&
+                        !entry.thumbPath.startsWith('http')
+                      ) {
+                        entry.thumbPath = PlatformIO.getURLforPath(
+                          entry.thumbPath
+                        );
+                      }
                       return entry;
                     }
                   }
